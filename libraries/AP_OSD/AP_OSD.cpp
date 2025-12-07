@@ -25,6 +25,7 @@
 #ifdef WITH_SITL_OSD
 #include "AP_OSD_SITL.h"
 #endif
+#include "AP_OSD_DropScope.h"
 #include "AP_OSD_MSP.h"
 #include "AP_OSD_MSP_DisplayPort.h"
 #include <AP_HAL/AP_HAL.h>

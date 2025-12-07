@@ -25,7 +25,6 @@
 
 #include "AP_OSD.h"
 #include "AP_OSD_Backend.h"
-
 #include <AP_HAL/AP_HAL.h>
 #include <AP_HAL/Util.h>
 #include <AP_AHRS/AP_AHRS.h>
@@ -2457,29 +2456,65 @@ void AP_OSD_Screen::draw_pluscode(uint8_t x, uint8_t y)
 #endif
 
 /*
-  support callsign display from a file called callsign.txt
- */
+  REPLACED CALLSIGN WITH DROP SCOPE
+*/
 void AP_OSD_Screen::draw_callsign(uint8_t x, uint8_t y)
 {
-#if AP_OSD_CALLSIGN_FROM_SD_ENABLED
-    if (!callsign_data.load_attempted) {
-        callsign_data.load_attempted = true;
-        FileData *fd = AP::FS().load_file("callsign.txt");
-        if (fd != nullptr) {
-            uint32_t len = fd->length;
-            // trim off whitespace
-            while (len > 0 && isspace(fd->data[len-1])) {
-                len--;
-            }
-            callsign_data.str = strndup((const char *)fd->data, len);
-            delete fd;
-        }
+    // 1. Get Dependencies
+    const AP_AHRS &ahrs = AP::ahrs();
+    const AP_GPS &gps = AP::gps();
+    const AP_Baro &baro = AP::baro();
+
+    // 2. Safety Check (Don't draw if not flying or no GPS)
+    if (gps.status() < AP_GPS::GPS_OK_FIX_3D) {
+        return;
     }
-    if (callsign_data.str != nullptr) {
-        backend->write(x, y, false, "%s", callsign_data.str);
+
+    // 3. Physics Math (Calculates impact distance)
+    float height = baro.get_altitude();
+    if (height < 1.0f) height = 0.0f; 
+
+    float speed = gps.ground_speed();
+    float tti = safe_sqrt(2 * height / 9.81f);
+    float impact_dist = speed * tti;
+
+    // 4. Projection (World -> Screen Grid)
+    // Adjust these FOV values to match your camera!
+    const float cam_fov_h = radians(100);
+    const float cam_fov_v = radians(60);
+
+    // OSD Grid Size (Standard 30x16)
+    const float grid_w = 30.0f;
+    const float grid_h = 16.0f;
+
+    // Calculate Angles
+    float pitch = ahrs.get_pitch();
+    float roll = ahrs.get_roll();
+    
+    float angle_to_target_v = -M_PI_2; // Default straight down
+    if (impact_dist > 0.1f) {
+        angle_to_target_v = -atanf(height / impact_dist);
     }
-#endif
+
+    float rel_angle_v = angle_to_target_v - pitch;
+    float rel_angle_h = -roll; 
+
+    // Calculate Grid Position (0,0 is Top Left)
+    float offset_x = (rel_angle_h / (cam_fov_h / 2.0f)) * (grid_w / 2.0f);
+    float offset_y = -(rel_angle_v / (cam_fov_v / 2.0f)) * (grid_h / 2.0f);
+
+    int final_col = (int)((grid_w / 2.0f) + offset_x);
+    int final_row = (int)((grid_h / 2.0f) + offset_y);
+
+    // 5. Draw the Cursor
+    // Only draw if it's actually on the screen
+    if (final_col >= 0 && final_col < 30 && final_row >= 0 && final_row < 16) {
+        // Draw "[+]" at the calculated position. 
+        // We ignore the 'x' and 'y' arguments because we want absolute screen position.
+        backend->write(final_col, final_row, false, "[+]");
+    }
 }
+
 
 void AP_OSD_Screen::draw_current2(uint8_t x, uint8_t y)
 {
